@@ -342,7 +342,7 @@ async def on_ready():
 # noinspection PyUnresolvedReferences
 def main():
     try:
-        bot.run(os.getenv('BOT_TOKEN2'))
+        bot.run(os.getenv('BOT_TOKEN'))
     except KeyboardInterrupt:
         print('Bot stopped.')
         bot.close()
