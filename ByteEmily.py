@@ -156,125 +156,139 @@ current_time = datetime.datetime.utcnow()
 
 
 async def countdown_update(remaining_time, countdown_end_time, message, countdown_message, image_url, additional_text):
-    while remaining_time.total_seconds() > 0:
-        if remaining_time.total_seconds() <= 1800:
-            update_interval = 5
-        else:
-            update_interval = 60
-
-        await asyncio.sleep(update_interval)
-        remaining_time = countdown_end_time - datetime.datetime.utcnow()
-
-        if remaining_time.total_seconds() <= 0:
-            countdown_content = f"`Objective is gone`.\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d`  `%H:%M:%S')} UTC`"
-        else:
-            remaining_formatted = str(remaining_time)
-            remaining_formatted = remaining_formatted.split(".")[0]
-            countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
-
-        try:
-            if image_url:
-                await countdown_message.edit(content=f"{countdown_content}\n{image_url}")
+    try:
+        while remaining_time.total_seconds() > 0:
+            if remaining_time.total_seconds() <= 1800:
+                update_interval = 5
             else:
-                await countdown_message.edit(content=countdown_content)
-        except discord.NotFound:
-            pass
+                update_interval = 60
+
+            await asyncio.sleep(update_interval)
+            remaining_time = countdown_end_time - datetime.datetime.utcnow()
+
+            if remaining_time.total_seconds() <= 0:
+                countdown_content = f"`Objective is gone`.\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d`  `%H:%M:%S')} UTC`"
+            else:
+                remaining_formatted = str(remaining_time)
+                remaining_formatted = remaining_formatted.split(".")[0]
+                countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
+
+            try:
+                if image_url:
+                    await countdown_message.edit(content=f"{countdown_content}\n{image_url}")
+                else:
+                    await countdown_message.edit(content=countdown_content)
+            except discord.NotFound:
+                pass
+    except Exception as e:
+        print(f"Error occurred in countdown_update: {str(e)}")
 
 
 # noinspection PyGlobalUndefined
 async def handle_content_in_command(message):
-    global countdown_count
-
-    if countdown_count >= 30:
-        await message.channel.send("Maximum countdown limit reached. You cannot create more countdowns.")
-        return
-
-    if not member_or_trial(message.author):
-        print("User does not have permission to use this command.")
-
-        await message.channel.send("You do not have permission to use this command.")
-        return
-
-    command_parts = message.content.split(" ")
-    if len(command_parts) < 2:
-        print("Invalid command format.")
-        await message.channel.send("Invalid command format. Please use `!content_in <time> [image_url]`")
-        return
-
-    time_str = command_parts[1]
-    time_units = {"min": "minutes", "hour": "hours", "day": "days"}
-
-    if re.match(r"\d+:\d+:\d+", time_str):
-        time_parts = time_str.split(":")
-        if len(time_parts) != 3:
-            await message.channel.send("Invalid time format. Please use `<number>:<number>:<number> (e.g., 1:20:30)`.")
-            return
-
-        hours = int(time_parts[0])
-        minutes = int(time_parts[1])
-        seconds = int(time_parts[2])
-        time_value = hours * 3600 + minutes * 60 + seconds
-
-    elif re.match(r"\d+:\d+", time_str):
-        time_parts = time_str.split(":")
-        if len(time_parts) != 2:
-            await message.channel.send("Invalid time format. Please use `<number>:<number> (e.g., 1:20).`")
-            return
-
-        minutes = int(time_parts[0])
-        seconds = int(time_parts[1])
-        time_value = minutes * 60 + seconds
-    else:
-        try:
-            time_value = int(time_str)
-        except ValueError:
-            await message.channel.send(
-                "Invalid time format. Please use `<number>, <number>:<number>`, or `<number>:<number>:<number> (e.g., 1, 1:20, or 1:20:30)`")
-            return
-
-    image_url = None
-    additional_text = ""
-    countdown_count += 1
-
-    if len(command_parts) > 2:
-        if command_parts[-1].startswith("http"):
-            image_url = command_parts[-1]
-            additional_text = " ".join(command_parts[2:-1])
-        else:
-            additional_text = " ".join(command_parts[2:])
-
-    end_time = current_time + datetime.timedelta(seconds=time_value)
-    remaining_time = end_time - current_time
-
-    remaining_formatted = str(remaining_time)
-    remaining_formatted = remaining_formatted.split(".")[0]
-    countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Counting will end at:` {end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
-
-    if image_url:
-        countdown_message = await message.reply(f"{countdown_content}\n{image_url}")
-    else:
-        countdown_message = await message.reply(countdown_content)
-    await countdown_message.add_reaction("❌")
-
-    def check_reaction(reaction, user):
-        return str(reaction.emoji) == "❌" and reaction.message.id == countdown_message.id and (
-                user == message.author or discord.utils.get(user.roles, name="Guild Master"))
-
-    countdown_task = asyncio.create_task(
-        countdown_update(remaining_time, end_time, message, countdown_message, image_url, additional_text))
-
     try:
-        reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=86400)
-    except asyncio.TimeoutError:
-        pass
+        global countdown_count
 
-    else:
-        if str(reaction.emoji) == "❌":
-            countdown_task.cancel()
+        print(f"Received command: {message.content}")
+
+        if countdown_count >= 30:
+            await message.channel.send("Maximum countdown limit reached. You cannot create more countdowns.")
+            return
+
+        if not member_or_trial(message.author):
+            print("User does not have permission to use this command.")
+
+            await message.channel.send("You do not have permission to use this command.")
+            return
+
+        command_parts = message.content.split(" ")
+        if len(command_parts) < 2:
+            print("Invalid command format.")
+            await message.channel.send("Invalid command format. Please use `!content_in <time> [image_url]`")
+            return
+
+        time_str = command_parts[1]
+        time_units = {"min": "minutes", "hour": "hours", "day": "days"}
+
+        if re.match(r"\d+:\d+:\d+", time_str):
+            time_parts = time_str.split(":")
+            if len(time_parts) != 3:
+                await message.channel.send(
+                    "Invalid time format. Please use `<number>:<number>:<number> (e.g., 1:20:30)`.")
+                return
+
+            hours = int(time_parts[0])
+            minutes = int(time_parts[1])
+            seconds = int(time_parts[2])
+            time_value = hours * 3600 + minutes * 60 + seconds
+
+        elif re.match(r"\d+:\d+", time_str):
+            time_parts = time_str.split(":")
+            if len(time_parts) != 2:
+                await message.channel.send("Invalid time format. Please use `<number>:<number> (e.g., 1:20).`")
+                return
+
+            minutes = int(time_parts[0])
+            seconds = int(time_parts[1])
+            time_value = minutes * 60 + seconds
+        else:
             try:
-                await countdown_message.delete()
-            except discord.NotFound:
-                print("Countdown message not found...")
+                time_value = int(time_str)
+            except ValueError:
+                await message.channel.send(
+                    "Invalid time format. Please use `<number>, <number>:<number>`, or `<number>:<number>:<number> (e.g., 1, 1:20, or 1:20:30)`")
+                return
+
+        image_url = None
+        additional_text = ""
+        countdown_count += 1
+
+        if len(command_parts) > 2:
+            if command_parts[-1].startswith("http"):
+                image_url = command_parts[-1]
+                additional_text = " ".join(command_parts[2:-1])
+            else:
+                additional_text = " ".join(command_parts[2:])
+
+        end_time = current_time + datetime.timedelta(seconds=time_value)
+        remaining_time = end_time - current_time
+
+        remaining_formatted = str(remaining_time)
+        remaining_formatted = remaining_formatted.split(".")[0]
+        countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Counting will end at:` {end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
+
+        if image_url:
+            countdown_message = await message.reply(f"{countdown_content}\n{image_url}")
+        else:
+            countdown_message = await message.reply(countdown_content)
+        await countdown_message.add_reaction("❌")
+
+        def check_reaction(reaction, user):
+            return str(reaction.emoji) == "❌" and reaction.message.id == countdown_message.id and (
+                    user == message.author or discord.utils.get(user.roles, name="Guild Master"))
+
+        countdown_task = asyncio.create_task(
+            countdown_update(remaining_time, end_time, message, countdown_message, image_url, additional_text))
+
+        try:
+            reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=86400)
+        except asyncio.TimeoutError:
+            pass
+
+        else:
+            if str(reaction.emoji) == "❌":
+                countdown_task.cancel()
+                try:
+                    await countdown_message.delete()
+                except discord.NotFound:
+                    print("Countdown message not found...")
+
+        print(f"Parsed time value: {time_value}")
+        print(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        print(f"Current UTC time: {current_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        print(f"Remaining time: {remaining_time}")
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
 
 
 @bot.command()
@@ -293,7 +307,7 @@ async def content_in(ctx, time_str: str, *args):
 
 
 @bot.command()
-async def info(ctx):
+async def info_emily(ctx):
     try:
 
         embed = discord.Embed(
@@ -306,7 +320,7 @@ async def info(ctx):
             {
                 "name": "**!content_in**",
                 "description": " -----------------------------------------------------------------------"
-                               "**-Set a countdown** for a specified duration. -----------------------------------------"
+                               "-**Set a countdown** for a specified duration. -----------------------------------------"
                                "-It also shows the final time when the content should happen. -----------"
                                "----------You can also add any text and an image in the message if you want. ----------------"
                                "And you can delete the message by using the '❌' emoji---------------------------"
@@ -331,6 +345,10 @@ async def info(ctx):
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
         await ctx.send(error_message)
+
+
+bot_latency = bot.latency
+print(f"Bot latency: {bot_latency} seconds")
 
 
 @bot.event
