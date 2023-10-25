@@ -1,30 +1,34 @@
 import asyncio
 import os
-import re
 import discord
 import mysql.connector
 from discord.ext import commands
 from dotenv import load_dotenv
 import datetime
+import pytz
 
 
+# Define a custom command
 @commands.command()
 async def your_command(ctx):
-    await ctx.bot.wait_for(...)
+    await ctx.bot.wait_for(...)  # Placeholder for command logic
 
 
+# Load environment variables from a .env file
 load_dotenv()
 
+# Initialize Discord bot with specified intents
 intents = discord.Intents.default()
 intents.typing = False
 intents.presences = False
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
-countdown_count = 0
+countdown_count = 0  # Counter for countdown commands
 
-conn = None
+conn = None  # Global variable for database connection
 
 
+# Function to establish a connection to the MySQL database
 def establish_connection():
     global conn
     try:
@@ -39,6 +43,7 @@ def establish_connection():
         print("Failed to establish MySQL connection:", err)
 
 
+# Function to execute a non-query SQL command
 # noinspection PyUnresolvedReferences
 def execute_non_query(query, values=None):
     global conn
@@ -55,6 +60,7 @@ def execute_non_query(query, values=None):
         print("Failed to execute query:", err)
 
 
+# Function to close the database connection
 # noinspection PyUnresolvedReferences
 def close_connection():
     global conn
@@ -65,11 +71,13 @@ def close_connection():
         print("Connection is already closed or was never established.")
 
 
+# Event handler when the bot is shutting down
 @bot.event
 async def on_shutdown():
     close_connection()
 
 
+# Function to check if a user has a specific role
 def member_or_trial(user):
     member_role_name = 'member'
     trial_role_name = 'trial'
@@ -78,6 +86,7 @@ def member_or_trial(user):
         role_name == member_role_name.lower() or role_name == trial_role_name.lower() for role_name in lowercase_roles)
 
 
+# Function to format a number with hyphens for display
 def format_with_hyphens(number):
     if number is None:
         return ""
@@ -85,27 +94,38 @@ def format_with_hyphens(number):
 
 
 @bot.event
+async def on_reaction_add(reaction, user):
+    # Check if the reaction is "❌" and the user is not a bot
+    if str(reaction.emoji) == "❌" and not user.bot:
+        try:
+            # Fetch the message to make sure it still exists
+            original_message = await reaction.message.channel.fetch_message(reaction.message.id)
+            # Delete the original message
+            await original_message.delete()
+        except discord.NotFound:
+            # Handle the case where the message does not exist anymore
+            print("Message not found, could not delete.")
+
+
+# Event handler when the bot is ready
+@bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
-    establish_connection()
+    establish_connection()  # Establish database connection
 
-    close_connection()
-
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"You are on cooldown. Try again in {error.retry_after:.2f}s")
-    else:
-        pass
+    close_connection()  # Close database connection
 
 
+# Function to handle the !LootBal command
+# noinspection PyUnresolvedReferences
 async def handle_loot_bal_command(message):
+    # Check if the user has necessary permissions
     if not member_or_trial(message.author):
         await message.channel.send("You do not have permission to use this command.")
         return
 
     command_parts = message.content.split()
+    # Validate command syntax
     if len(command_parts) != 2:
         await message.channel.send('Invalid command. Usage: !LootBal <playerName>')
         return
@@ -114,10 +134,10 @@ async def handle_loot_bal_command(message):
 
     cursor = None
     try:
-        establish_connection()
-        # noinspection PyUnresolvedReferences
+        establish_connection()  # Establish database connection
         cursor = conn.cursor()
 
+        # Execute SQL query to retrieve total amount for the specified player
         cursor.execute("SELECT SUM(Amount) FROM Transactions WHERE Player = %s", (playerName,))
         result = cursor.fetchone()
 
@@ -135,10 +155,11 @@ async def handle_loot_bal_command(message):
         await message.channel.send(f'An error occurred while retrieving the balance: {str(e)}')
     finally:
         if cursor is not None:
-            cursor.close()
-        close_connection()
+            cursor.close()  # Close database cursor
+        close_connection()  # Close database connection
 
 
+# Command decorator for !LootBal command
 @bot.command(name="LootBal")
 async def lootbal(ctx, playerName: str):
     try:
@@ -146,176 +167,69 @@ async def lootbal(ctx, playerName: str):
         fake_message = ctx.message
         fake_message.content = f"!LootBal {command_string}"
 
-        await handle_loot_bal_command(fake_message)
+        await handle_loot_bal_command(fake_message)  # Call the handle_loot_bal_command function
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
-        await ctx.send(error_message)
-
-
-current_time = datetime.datetime.utcnow()
-
-
-async def countdown_update(remaining_time, countdown_end_time, message, countdown_message, image_url, additional_text):
-    try:
-        while remaining_time.total_seconds() > 0:
-            if remaining_time.total_seconds() <= 1800:
-                update_interval = 5
-            else:
-                update_interval = 60
-
-            await asyncio.sleep(update_interval)
-            remaining_time = countdown_end_time - datetime.datetime.utcnow()
-
-            if remaining_time.total_seconds() <= 0:
-                countdown_content = f"`Objective is gone`.\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d`  `%H:%M:%S')} UTC`"
-            else:
-                remaining_formatted = str(remaining_time)
-                remaining_formatted = remaining_formatted.split(".")[0]
-                countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Objective pop at`: {countdown_end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
-
-            try:
-                if image_url:
-                    await countdown_message.edit(content=f"{countdown_content}\n{image_url}")
-                else:
-                    await countdown_message.edit(content=countdown_content)
-            except discord.NotFound:
-                pass
-    except Exception as e:
-        print(f"Error occurred in countdown_update: {str(e)}")
-
-
-# noinspection PyGlobalUndefined
-async def handle_content_in_command(message):
-    try:
-        global countdown_count
-
-        print(f"Received command: {message.content}")
-
-        if countdown_count >= 30:
-            await message.channel.send("Maximum countdown limit reached. You cannot create more countdowns.")
-            return
-
-        if not member_or_trial(message.author):
-            print("User does not have permission to use this command.")
-
-            await message.channel.send("You do not have permission to use this command.")
-            return
-
-        command_parts = message.content.split(" ")
-        if len(command_parts) < 2:
-            print("Invalid command format.")
-            await message.channel.send("Invalid command format. Please use `!content_in <time> [image_url]`")
-            return
-
-        time_str = command_parts[1]
-        time_units = {"min": "minutes", "hour": "hours", "day": "days"}
-
-        if re.match(r"\d+:\d+:\d+", time_str):
-            time_parts = time_str.split(":")
-            if len(time_parts) != 3:
-                await message.channel.send(
-                    "Invalid time format. Please use `<number>:<number>:<number> (e.g., 1:20:30)`.")
-                return
-
-            hours = int(time_parts[0])
-            minutes = int(time_parts[1])
-            seconds = int(time_parts[2])
-            time_value = hours * 3600 + minutes * 60 + seconds
-
-        elif re.match(r"\d+:\d+", time_str):
-            time_parts = time_str.split(":")
-            if len(time_parts) != 2:
-                await message.channel.send("Invalid time format. Please use `<number>:<number> (e.g., 1:20).`")
-                return
-
-            minutes = int(time_parts[0])
-            seconds = int(time_parts[1])
-            time_value = minutes * 60 + seconds
-        else:
-            try:
-                time_value = int(time_str)
-            except ValueError:
-                await message.channel.send(
-                    "Invalid time format. Please use `<number>, <number>:<number>`, or `<number>:<number>:<number> (e.g., 1, 1:20, or 1:20:30)`")
-                return
-
-        image_url = None
-        additional_text = ""
-        countdown_count += 1
-
-        if len(command_parts) > 2:
-            if command_parts[-1].startswith("http"):
-                image_url = command_parts[-1]
-                additional_text = " ".join(command_parts[2:-1])
-            else:
-                additional_text = " ".join(command_parts[2:])
-
-        end_time = current_time + datetime.timedelta(seconds=time_value)
-        remaining_time = end_time - current_time
-
-        remaining_formatted = str(remaining_time)
-        remaining_formatted = remaining_formatted.split(".")[0]
-        countdown_content = f"Time remaining:```\n{remaining_formatted}\n```\n`Counting will end at:` {end_time.strftime('`%Y-%m-%d` `%H:%M:%S')} UTC`"
-
-        if image_url:
-            countdown_message = await message.reply(f"{countdown_content}\n{image_url}")
-        else:
-            countdown_message = await message.reply(countdown_content)
-        await countdown_message.add_reaction("❌")
-
-        def check_reaction(reaction, user):
-            return str(reaction.emoji) == "❌" and reaction.message.id == countdown_message.id and (
-                    user == message.author or discord.utils.get(user.roles, name="Guild Master"))
-
-        countdown_task = asyncio.create_task(
-            countdown_update(remaining_time, end_time, message, countdown_message, image_url, additional_text))
-
-        try:
-            reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=86400)
-        except asyncio.TimeoutError:
-            pass
-
-        else:
-            if str(reaction.emoji) == "❌":
-                countdown_task.cancel()
-                try:
-                    await countdown_message.delete()
-                except discord.NotFound:
-                    print("Countdown message not found...")
-
-        print(f"Parsed time value: {time_value}")
-        print(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print(f"Current UTC time: {current_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print(f"Remaining time: {remaining_time}")
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
+        await ctx.send(error_message)  # Send error message to the channel
 
 
 @bot.command()
-@commands.cooldown(rate=1, per=10, type=commands.BucketType.user)
-async def content_in(ctx, time_str: str, *args):
-    if ctx.channel.id != 1005640291937697872:
-        return
+async def content_in(ctx, time_str: str):
     try:
-        await handle_content_in_command(ctx.message)
-    except ValueError:
-        error_message = "Invalid time format. Please use <number>, <number>:<number>, or <number>:<number>:<number> (e.g., 1, 1:20, or 1:20:30)."
-        await ctx.send(error_message)
+        # Parse input time (hours:minutes)
+        hours, minutes = map(int, time_str.split(':'))
+        total_seconds = hours * 3600 + minutes * 60
+
+        # Calculate end time in UTC
+        current_time = datetime.datetime.utcnow()
+        end_time = current_time + datetime.timedelta(seconds=total_seconds)
+
+        # Format countdown message using Discord timestamp format
+        utc = pytz.timezone('UTC')
+        end_time_utc = utc.localize(end_time)
+        discord_timestamp = f'<t:{int(end_time_utc.timestamp())}:R>'
+        formatted_time = end_time_utc.strftime('%Y-%m-%d `%H:%M:%S`')
+        countdown_message = f"Countdown will end at: {discord_timestamp} ({formatted_time} UTC)"
+
+        # Reply to the user's message with the countdown message
+        response_message = await ctx.message.reply(countdown_message)
+
+        # Add "❌" emoji reaction to the response message
+        await response_message.add_reaction("❌")
+
+        def check_reaction(reaction, user):
+            return str(reaction.emoji) == "❌" and reaction.message.id == response_message.id and user == ctx.author
+
+        # Wait for the countdown to finish or until user reacts with "❌" emoji
+        while end_time > datetime.datetime.utcnow():
+            await asyncio.sleep(1)
+
+            try:
+                reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=1)
+                # User reacted with "❌", stop the countdown
+                break
+            except asyncio.TimeoutError:
+                pass
+
+        # Edit the original countdown message when countdown is done
+        await response_message.edit(content="Content ended!")
+
     except Exception as e:
-        error_message = f"An error occurred: {str(e)}"
-        await ctx.send(error_message)
+        await ctx.message.reply(f"Error occurred: {str(e)}")
 
 
+# Command to provide information about available commands
 @bot.command()
 async def info_emily(ctx):
     try:
-
+        # Create an embed for command information
         embed = discord.Embed(
             title="Command Information",
             description="List of available commands and their explanations:",
             color=discord.Color.gold(),
         )
 
+        # List of command descriptions and usage instructions
         command_s = [
             {
                 "name": "**!content_in**",
@@ -334,6 +248,7 @@ async def info_emily(ctx):
             }
         ]
 
+        # Add fields to the embed for each command
         for command in command_s:
             embed.add_field(
                 name=f"☆•☆ {command['name']}",
@@ -341,32 +256,27 @@ async def info_emily(ctx):
                 inline=False
             )
 
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed)  # Send the embed to the channel
     except Exception as e:
         error_message = f"An error occurred: {str(e)}"
-        await ctx.send(error_message)
+        await ctx.send(error_message)  # Send error message to the channel
 
 
-bot_latency = bot.latency
-print(f"Bot latency: {bot_latency} seconds")
+bot_latency = bot.latency  # Get bot latency
+print(f"Bot latency: {bot_latency} seconds")  # Print bot latency in seconds
 
 
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user.name} ({bot.user.id})')
-    establish_connection()
-
-
+# Main function to run the bot
 # noinspection PyUnresolvedReferences
 def main():
     try:
-        bot.run(os.getenv('BOT_TOKEN'))
+        bot.run(os.getenv('BOT_TOKEN2'))  # Run the bot with the provided token
     except KeyboardInterrupt:
         print('Bot stopped.')
         bot.close()
         if conn:
-            conn.close()
+            conn.close()  # Close database connection if open
 
 
 if __name__ == "__main__":
-    main()
+    main()  # Call the main function if the script is executed directly
