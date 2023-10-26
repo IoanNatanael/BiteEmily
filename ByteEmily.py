@@ -175,8 +175,6 @@ async def lootbal(ctx, playerName: str):
 
 @bot.command()
 async def content_in(ctx, time_str: str):
-    if ctx.channel.id != 1005640291937697872: 
-        pass
     try:
         # Parse input time (hours:minutes)
         hours, minutes = map(int, time_str.split(':'))
