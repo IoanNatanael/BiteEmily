@@ -267,7 +267,7 @@ print(f"Bot latency: {bot_latency} seconds")  # Print bot latency in seconds
 # noinspection PyUnresolvedReferences
 def main():
     try:
-        bot.run(os.getenv('BOT_TOKEN2'))  # Run the bot with the provided token
+        bot.run(os.getenv('BOT_TOKEN'))  # Run the bot with the provided token
     except KeyboardInterrupt:
         print('Bot stopped.')
         bot.close()
