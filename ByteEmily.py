@@ -7,13 +7,6 @@ from dotenv import load_dotenv
 import datetime
 import pytz
 
-
-# Define a custom command
-@commands.command()
-async def your_command(ctx):
-    await ctx.bot.wait_for(...)  # Placeholder for command logic
-
-
 # Load environment variables from a .env file
 load_dotenv()
 
@@ -175,47 +168,51 @@ async def lootbal(ctx, playerName: str):
 
 @bot.command()
 async def content_in(ctx, time_str: str):
-    try:
-        # Parse input time (hours:minutes)
-        hours, minutes = map(int, time_str.split(':'))
-        total_seconds = hours * 3600 + minutes * 60
+    if ctx.channel.id != 1005640291937697872:
+        return
+    else:
+        try:
+            # Parse input time (hours:minutes)
+            hours, minutes = map(int, time_str.split(':'))
+            total_seconds = hours * 3600 + minutes * 60
 
-        # Calculate end time in UTC
-        current_time = datetime.datetime.utcnow()
-        end_time = current_time + datetime.timedelta(seconds=total_seconds)
+            # Calculate end time in UTC
+            current_time = datetime.datetime.utcnow()
+            end_time = current_time + datetime.timedelta(seconds=total_seconds)
 
-        # Format countdown message using Discord timestamp format
-        utc = pytz.timezone('UTC')
-        end_time_utc = utc.localize(end_time)
-        discord_timestamp = f'<t:{int(end_time_utc.timestamp())}:R>'
-        formatted_time = end_time_utc.strftime('%Y-%m-%d `%H:%M:%S`')
-        countdown_message = f"Countdown will end at: {discord_timestamp} ({formatted_time} UTC)"
+            # Format countdown message using Discord timestamp format
+            utc = pytz.timezone('UTC')
+            end_time_utc = utc.localize(end_time)
+            discord_timestamp = f'<t:{int(end_time_utc.timestamp())}:R>'
+            formatted_time = end_time_utc.strftime('%Y-%m-%d `%H:%M:%S`')
+            countdown_message = f"Countdown will end at: {discord_timestamp} ({formatted_time} UTC)"
 
-        # Reply to the user's message with the countdown message
-        response_message = await ctx.message.reply(countdown_message)
+            # Reply to the user's message with the countdown message
+            response_message = await ctx.message.reply(countdown_message)
 
-        # Add "❌" emoji reaction to the response message
-        await response_message.add_reaction("❌")
+            # Add "❌" emoji reaction to the response message
+            await response_message.add_reaction("❌")
 
-        def check_reaction(reaction, user):
-            return str(reaction.emoji) == "❌" and reaction.message.id == response_message.id and user == ctx.author
+            def check_reaction(reaction, user):
+                return str(reaction.emoji) == "❌" and reaction.message.id == response_message.id and user == ctx.author
 
-        # Wait for the countdown to finish or until user reacts with "❌" emoji
-        while end_time > datetime.datetime.utcnow():
-            await asyncio.sleep(1)
+            # Wait for the countdown to finish or until user reacts with "❌" emoji
+            while end_time > datetime.datetime.utcnow():
+                await asyncio.sleep(1)
 
-            try:
-                reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=1)
-                # User reacted with "❌", stop the countdown
-                break
-            except asyncio.TimeoutError:
-                pass
+                try:
+                    reaction, _ = await bot.wait_for("reaction_add", check=check_reaction, timeout=1)
+                    # User reacted with "❌", stop the countdown
+                    break
+                except asyncio.TimeoutError:
+                    pass
 
-        # Edit the original countdown message when countdown is done
-        await response_message.edit(content="Content ended!")
+            # Edit the original countdown message when countdown is done
+            await response_message.edit(content="Content ended!")
 
-    except Exception as e:
-        await ctx.message.reply(f"Error occurred: {str(e)}")
+        except Exception as e:
+            await ctx.message.reply(f"Error occurred: {str(e)}")
+        pass
 
 
 # Command to provide information about available commands
