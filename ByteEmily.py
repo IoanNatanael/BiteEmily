@@ -1,11 +1,14 @@
 import asyncio
 import os
+import aiomysql
 import discord
-import mysql.connector
 from discord.ext import commands
 from dotenv import load_dotenv
 import datetime
 import pytz
+from tabulate import tabulate
+from collections import defaultdict
+import logging
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -15,59 +18,12 @@ intents = discord.Intents.default()
 intents.typing = False
 intents.presences = False
 intents.message_content = True
+intents.reactions = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 countdown_count = 0  # Counter for countdown commands
+role_registrations = defaultdict(list)
 
 conn = None  # Global variable for database connection
-
-
-# Function to establish a connection to the MySQL database
-def establish_connection():
-    global conn
-    try:
-        conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USERNAME'),
-            password=os.getenv('DB_PASSWORD'),
-            database=os.getenv('DB_DATABASE'),
-            auth_plugin='mysql_native_password',
-        )
-    except mysql.connector.Error as err:
-        print("Failed to establish MySQL connection:", err)
-
-
-# Function to execute a non-query SQL command
-# noinspection PyUnresolvedReferences
-def execute_non_query(query, values=None):
-    global conn
-    try:
-        if conn.is_connected():
-            cursor = conn.cursor()
-            if values:
-                cursor.execute(query, values)
-            else:
-                cursor.execute(query)
-            conn.commit()
-            cursor.close()
-    except mysql.connector.Error as err:
-        print("Failed to execute query:", err)
-
-
-# Function to close the database connection
-# noinspection PyUnresolvedReferences
-def close_connection():
-    global conn
-    if conn is not None:
-        conn.close()
-        conn = None
-    else:
-        print("Connection is already closed or was never established.")
-
-
-# Event handler when the bot is shutting down
-@bot.event
-async def on_shutdown():
-    close_connection()
 
 
 # Function to check if a user has a specific role
@@ -93,77 +49,118 @@ async def on_reaction_add(reaction, user):
         try:
             # Fetch the message to make sure it still exists
             original_message = await reaction.message.channel.fetch_message(reaction.message.id)
-            # Delete the original message
-            await original_message.delete()
+            # Check if the message is already deleted
+            if original_message is not None:
+                # Delete the original message
+                await original_message.delete()
+            else:
+                print("Message not found, could not delete.")
         except discord.NotFound:
             # Handle the case where the message does not exist anymore
             print("Message not found, could not delete.")
+
+    # Check if the reaction is by a bot or on a different server
+    elif not user.bot and reaction.message.guild == bot.guilds[0]:
+        # Get the role corresponding to the reacted emoji
+        new_role = None
+        for key, value in emojis.items():
+            if value == reaction.emoji:
+                new_role = key
+                break
+
+        # Remove user from all roles
+        for role, members in role_registrations.items():
+            if user.name in members:
+                role_registrations[role].remove(user.name)
+
+        # Add user to the new role registration dictionary
+        if new_role:
+            role_registrations[new_role].append(user.name)
+            await update_message(reaction.message)
+
+
+# noinspection PyUnresolvedReferences
+async def on_shutdown():
+    print("Shutting down...")
+    if bot.pool is not None:
+        print("Closing connection pool...")
+        bot.pool.close()  # Close the connection pool
+        await bot.pool.wait_closed()  # Wait until the pool is closed
+        print("Connection pool closed.")
+
+        if bot.loop.is_running():
+            print("Stopping event loop...")
+            bot.loop.stop()  # Stop the event loop if it's still running
+            print("Event loop stopped.")
+        else:
+            print("Event loop is already stopped.")
+    else:
+        print("Connection pool is already closed.")
+
+
+# Function to establish a direct connection to the MySQL database
+async def create_db_connection():
+    try:
+        connection = await aiomysql.connect(
+            host=os.getenv('DB_HOST'),
+            port=int(os.getenv('DB_PORT')),
+            user=os.getenv('DB_USERNAME'),
+            password=os.getenv('DB_PASSWORD'),
+            db=os.getenv('DB_DATABASE'),
+            autocommit=True,
+        )
+        return connection
+    except Exception as e:
+        print("Failed to establish MySQL connection:", e)
+        logging.error("Failed to establish MySQL connection: %s", e, exc_info=True)
+        return None
 
 
 # Event handler when the bot is ready
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
-    establish_connection()  # Establish database connection
-
-    close_connection()  # Close database connection
+    bot.connection = await create_db_connection()
 
 
-# Function to handle the !LootBal command
 # noinspection PyUnresolvedReferences
-async def handle_loot_bal_command(message):
-    # Check if the user has necessary permissions
-    if not member_or_trial(message.author):
-        await message.channel.send("You do not have permission to use this command.")
-        return
-
-    command_parts = message.content.split()
-    # Validate command syntax
-    if len(command_parts) != 2:
-        await message.channel.send('Invalid command. Usage: !LootBal <playerName>')
-        return
-
-    playerName = command_parts[1].capitalize()
-
-    cursor = None
-    try:
-        establish_connection()  # Establish database connection
-        cursor = conn.cursor()
-
-        # Execute SQL query to retrieve total amount for the specified player
-        cursor.execute("SELECT SUM(Amount) FROM Transactions WHERE Player = %s", (playerName,))
-        result = cursor.fetchone()
-
-        if result is not None:
-            total_amount = result[0]
-            formatted_amount = format_with_hyphens(total_amount)
-            if total_amount == 0 or total_amount is None:
-                formatted_amount = "-0-"
-            await message.channel.send(f'Player {playerName} has a total amount of {formatted_amount}')
-        else:
-            await message.channel.send('No results found.')
-
-        cursor.fetchall()
-    except Exception as e:
-        await message.channel.send(f'An error occurred while retrieving the balance: {str(e)}')
-    finally:
-        if cursor is not None:
-            cursor.close()  # Close database cursor
-        close_connection()  # Close database connection
-
-
-# Command decorator for !LootBal command
 @bot.command(name="LootBal")
 async def lootbal(ctx, playerName: str):
     try:
-        command_string = f"{playerName}"
-        fake_message = ctx.message
-        fake_message.content = f"!LootBal {command_string}"
+        # Check if the command is used in the allowed channel
+        if ctx.channel.id != 1158534391295905842:
+            return
 
-        await handle_loot_bal_command(fake_message)  # Call the handle_loot_bal_command function
+        # Check if the user has the required roles
+        if not member_or_trial(ctx.author):
+            await ctx.send("You do not have permission to use this command.")
+            return
+        # Check if the database connection is None
+        if bot.connection is None:
+            await ctx.send("Database connection is not ready. Please try again later.")
+            return
+
+        # Wait until the connection is ready
+        async with bot.connection.cursor() as cursor:
+            # Execute asynchronous database query to retrieve total amount for the specified player
+            await cursor.execute("SELECT SUM(Amount) FROM Transactions WHERE Player = %s", (playerName,))
+            result = await cursor.fetchone()
+
+            if result is not None:
+                total_amount = result[0]
+                formatted_amount = format_with_hyphens(total_amount)
+                if total_amount == 0 or total_amount is None:
+                    formatted_amount = "-0-"
+                await ctx.send(f'Player {playerName} has a total amount of {formatted_amount}')
+            else:
+                await ctx.send('No results found.')
+
     except Exception as e:
-        error_message = f"An error occurred: {str(e)}"
+        error_message = f'An error occurred while retrieving the balance: {str(e)}'
         await ctx.send(error_message)  # Send error message to the channel
+
+
+asyncio.set_event_loop(asyncio.ProactorEventLoop())
 
 
 @bot.command()
@@ -185,7 +182,7 @@ async def content_in(ctx, time_str: str):
             end_time_utc = utc.localize(end_time)
             discord_timestamp = f'<t:{int(end_time_utc.timestamp())}:R>'
             formatted_time = end_time_utc.strftime('%Y-%m-%d `%H:%M:%S`')
-            countdown_message = f"Countdown will end at: {discord_timestamp} ({formatted_time} UTC)"
+            countdown_message = f"Countdown will end: {discord_timestamp} ({formatted_time} UTC)"
 
             # Reply to the user's message with the countdown message
             response_message = await ctx.message.reply(countdown_message)
@@ -212,13 +209,69 @@ async def content_in(ctx, time_str: str):
 
         except Exception as e:
             await ctx.message.reply(f"Error occurred: {str(e)}")
-        pass
+    pass
+
+
+# Predefined emojis for each role
+emojis = {
+    "Main Tank": "🛡️",
+    "Off Tank": "⚔️",
+    "Main heal": "💊",
+    "Party Heal": "🎉",
+    "Witchwork": "🧙‍♂️",
+    "Weeping": "😢",
+    "Basilisk": "🐉",
+    "Absence": "🚫",
+    "Fill": "✨",
+    "delete_message": "❌",
+}
+
+
+@bot.command()
+async def setup(ctx, *, args):
+    try:
+        # Check if the command is sent in the specified channel
+        if ctx.channel.id != 1169144302019026954:
+            return
+
+        description = args  # Get the user input as the description
+
+        # Create the initial formatted message with the user input as the description
+        table_data = []
+        for r, emoji in emojis.items():
+            table_data.append([f"{emoji} {r}", ''])
+        formatted_table = tabulate(table_data, headers=['Role', 'registered'], tablefmt='fancy_grid')
+
+        # Send the initial formatted message as a message with the user input as the description
+        message_content = f'_{description}_\n```\n{formatted_table}\n```'
+        message = await ctx.send(message_content)
+
+        # Add reactions to the message based on roles
+        for role in emojis.values():
+            await message.add_reaction(role)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+async def update_message(message):
+    # Create a new formatted message with updated registration data using tabulate
+    table_data = []
+    for r, emoji in emojis.items():
+        registered_users = ', '.join(role_registrations.get(r, []))
+        table_data.append([f'{emoji} {r}', registered_users])
+    formatted_table = tabulate(table_data, headers=['Role', 'registered'], tablefmt='fancy_grid')
+
+    # Edit the message with the updated data
+    await message.edit(content=f'_Informative Text_\n```\n{formatted_table}\n```')
 
 
 # Command to provide information about available commands
 @bot.command()
 async def info_emily(ctx):
     try:
+        if ctx.channel.id != 1005640291937697872 or 1158534391295905842:
+            return
         # Create an embed for command information
         embed = discord.Embed(
             title="Command Information",
@@ -259,20 +312,14 @@ async def info_emily(ctx):
         await ctx.send(error_message)  # Send error message to the channel
 
 
-bot_latency = bot.latency  # Get bot latency
-print(f"Bot latency: {bot_latency} seconds")  # Print bot latency in seconds
-
-
 # Main function to run the bot
 # noinspection PyUnresolvedReferences
 def main():
     try:
-        bot.run(os.getenv('BOT_TOKEN'))  # Run the bot with the provided token
+        # Start the bot with the provided token
+        bot.run(os.getenv('BOT_TOKEN2'))
     except KeyboardInterrupt:
         print('Bot stopped.')
-        bot.close()
-        if conn:
-            conn.close()  # Close database connection if open
 
 
 if __name__ == "__main__":
