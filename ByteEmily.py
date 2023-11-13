@@ -160,9 +160,6 @@ async def lootbal(ctx, playerName: str):
         await ctx.send(error_message)  # Send error message to the channel
 
 
-asyncio.set_event_loop(asyncio.ProactorEventLoop())
-
-
 @bot.command()
 async def content_in(ctx, time_str: str):
     if ctx.channel.id != 1005640291937697872:
