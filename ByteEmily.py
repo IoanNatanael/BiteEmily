@@ -314,7 +314,7 @@ async def info_emily(ctx):
 def main():
     try:
         # Start the bot with the provided token
-        bot.run(os.getenv('BOT_TOKEN2'))
+        bot.run(os.getenv('BOT_TOKEN'))
     except KeyboardInterrupt:
         print('Bot stopped.')
 
