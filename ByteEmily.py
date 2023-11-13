@@ -148,9 +148,9 @@ async def lootbal(ctx, playerName: str):
 
             if result is not None:
                 total_amount = result[0]
-                formatted_amount = format_with_hyphens(total_amount)
+                formatted_amount = f"{format_with_hyphens(total_amount)} 💰"
                 if total_amount == 0 or total_amount is None:
-                    formatted_amount = "-0-"
+                    formatted_amount = "-0- 💰"
                 await ctx.send(f'Player {playerName} has a total amount of {formatted_amount}')
             else:
                 await ctx.send('No results found.')
