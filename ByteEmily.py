@@ -9,6 +9,7 @@ import pytz
 from tabulate import tabulate
 from collections import defaultdict
 import logging
+from config.config import settings
 
 # Load environment variables from a .env file
 load_dotenv()
@@ -19,7 +20,8 @@ intents.typing = False
 intents.presences = False
 intents.message_content = True
 intents.reactions = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+
+bot = commands.Bot(command_prefix='!', intents=intents, application_id=settings.application_id)
 countdown_count = 0  # Counter for countdown commands
 role_registrations = defaultdict(list)
 
